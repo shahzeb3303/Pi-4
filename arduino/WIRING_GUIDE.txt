@@ -1,0 +1,112 @@
+================================================================================
+ARDUINO SENSOR WIRING GUIDE
+================================================================================
+
+YOU HAVE 5 HC-SR04 SENSORS TO CONNECT TO ARDUINO
+
+Arduino Pin Assignments:
+------------------------
+
+Sensor: FL (Front Left)
+   TRIG: Pin D2
+   ECHO: Pin D3
+   VCC:  5V
+   GND:  GND
+
+Sensor: FR (Front Right)
+   TRIG: Pin D4
+   ECHO: Pin D5
+   VCC:  5V
+   GND:  GND
+
+Sensor: BC (Back Center)
+   TRIG: Pin D6
+   ECHO: Pin D7
+   VCC:  5V
+   GND:  GND
+
+Sensor: LS (Left Side)
+   TRIG: Pin D8
+   ECHO: Pin D9
+   VCC:  5V
+   GND:  GND
+
+Sensor: RS (Right Side)
+   TRIG: Pin D10
+   ECHO: Pin D11
+   VCC:  5V
+   GND:  GND
+
+================================================================================
+
+What Changed From Your Old Code:
+---------------------------------
+
+OLD (6 sensors):  FL, FC, FR, BL, BC, BR
+NEW (5 sensors):  FL, FR, BC, LS, RS
+
+Changes:
+   - FC (Front Center) REMOVED → Now waterproof sensor on Pi (FW)
+   - BL (Back Left) REMOVED
+   - BR (Back Right) REMOVED
+   - LS (Left Side) ADDED
+   - RS (Right Side) ADDED
+
+================================================================================
+
+Physical Sensor Placement on Vehicle:
+--------------------------------------
+
+         FRONT OF VEHICLE
+
+    FL                          FR
+    👁️                          👁️
+  (D2/D3)    (FW on Pi)      (D4/D5)
+
+
+LS 👁️  [====== VEHICLE ======]  👁️ RS
+ (D8/D9)                      (D10/D11)
+
+
+
+              BC
+              👁️
+           (D6/D7)
+
+         BACK OF VEHICLE
+
+================================================================================
+
+Testing Your Arduino:
+---------------------
+
+1. Upload the code: ultrasonic_sensors_updated.ino
+2. Open Serial Monitor (115200 baud)
+3. You should see:
+
+   5-Sensor Ultrasonic Array Initialized
+   Sensors: FL, FR, BC, LS, RS
+   {"FL":123.4,"FR":234.5,"BC":345.6,"LS":456.7,"RS":567.8}
+   {"FL":125.1,"FR":233.2,"BC":344.8,"LS":455.3,"RS":566.4}
+   ...
+
+4. Wave your hand in front of each sensor to verify it's working
+
+================================================================================
+
+Common Issues:
+--------------
+
+Problem: Sensor always reads 0
+Fix: Check VCC (5V) and GND connections
+
+Problem: Sensor reads randomly
+Fix: Increase delay between readings (line 88 in code)
+
+Problem: Wrong sensor names in JSON
+Fix: Code already has correct names (FL, FR, BC, LS, RS)
+
+Problem: Arduino not found by Pi
+Fix: Check USB cable, verify /dev/ttyUSB0 or /dev/ttyACM0
+
+================================================================================
