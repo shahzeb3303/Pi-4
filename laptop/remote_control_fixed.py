@@ -27,6 +27,9 @@ PI_PORT = 5555
 # Commands
 CMD_FORWARD = 'FORWARD'
 CMD_BACKWARD = 'BACKWARD'
+CMD_LEFT = 'LEFT'
+CMD_RIGHT = 'RIGHT'
+CMD_STEER_STOP = 'STEER_STOP'
 CMD_STOP = 'STOP'
 CMD_EMERGENCY = 'EMERGENCY'
 
@@ -56,6 +59,7 @@ class RemoteControl:
 
         # Current command (press once to set, stays until changed)
         self.current_command = CMD_STOP
+        self.current_steer = CMD_STEER_STOP
         self.command_lock = threading.Lock()
         self.status = None
         self.status_lock = threading.Lock()
@@ -111,12 +115,17 @@ class RemoteControl:
         """Continuously send current command (runs in thread)"""
         while self.running and self.connected:
             try:
-                # Get current command
                 with self.command_lock:
                     cmd = self.current_command
+                    steer = self.current_steer
 
-                # Send current command
+                # Send drive command
                 self.send_command(cmd)
+
+                # Send steer command if steering
+                if steer != CMD_STEER_STOP:
+                    time.sleep(0.05)
+                    self.send_command(steer)
 
                 # Send every 0.5 seconds (faster than 2-second watchdog)
                 time.sleep(0.5)
@@ -200,9 +209,12 @@ class RemoteControl:
                     min_back = self.status.get('min_distance_back', 0)
 
                 # Command and speed
+                steer = self.status.get('current_steer', 'STRAIGHT')
                 cmd_color = Colors.CYAN if cmd in [CMD_FORWARD, CMD_BACKWARD] else Colors.RESET
-                print(f"║  Status: {cmd_color}{cmd:8s}{Colors.RESET}          "
-                      f"Speed: {actual_speed:3d}%  (requested: {requested_speed:3d}%)   ║")
+                steer_color = Colors.MAGENTA if steer in [CMD_LEFT, CMD_RIGHT] else Colors.RESET
+                print(f"║  Drive: {cmd_color}{cmd:8s}{Colors.RESET}  "
+                      f"Steer: {steer_color}{steer:10s}{Colors.RESET}  "
+                      f"Speed: {actual_speed:3d}%          ║")
 
                 # Alert
                 alert_color = self.get_alert_color(alert)
@@ -236,13 +248,16 @@ class RemoteControl:
             print("║  Controls:                                                 ║")
             print("║    ↑ (Up Arrow)    : Move Forward (PRESS ONCE)             ║")
             print("║    ↓ (Down Arrow)  : Move Backward (PRESS ONCE)            ║")
-            print("║    SPACE           : Stop                                  ║")
+            print("║    ← (Left Arrow)  : Steer Left (HOLD)                    ║")
+            print("║    → (Right Arrow) : Steer Right (HOLD)                   ║")
+            print("║    SPACE           : Stop All                              ║")
             print("║    ESC             : Emergency Stop & Quit                 ║")
             print(Colors.BOLD + "╚" + "═" * 62 + "╝" + Colors.RESET)
 
             # Current command indicator
             with self.command_lock:
                 cmd_display = self.current_command
+                steer_display = self.current_steer
 
             if cmd_display == CMD_FORWARD:
                 cmd_display = f"{Colors.CYAN}↑ FORWARD{Colors.RESET}"
@@ -251,7 +266,14 @@ class RemoteControl:
             elif cmd_display == CMD_STOP:
                 cmd_display = f"{Colors.YELLOW}■ STOPPED{Colors.RESET}"
 
-            print(f"\nCurrent Command: {cmd_display}")
+            if steer_display == CMD_LEFT:
+                steer_display = f"{Colors.MAGENTA}← LEFT{Colors.RESET}"
+            elif steer_display == CMD_RIGHT:
+                steer_display = f"{Colors.MAGENTA}→ RIGHT{Colors.RESET}"
+            else:
+                steer_display = f"STRAIGHT"
+
+            print(f"\nDrive: {cmd_display}   Steer: {steer_display}")
 
             time.sleep(0.1)
 
@@ -260,22 +282,32 @@ class RemoteControl:
         try:
             with self.command_lock:
                 if key == keyboard.Key.up:
-                    # Forward
                     self.current_command = CMD_FORWARD
                 elif key == keyboard.Key.down:
-                    # Backward
                     self.current_command = CMD_BACKWARD
+                elif key == keyboard.Key.left:
+                    self.current_steer = CMD_LEFT
+                elif key == keyboard.Key.right:
+                    self.current_steer = CMD_RIGHT
                 elif key == keyboard.Key.space:
-                    # Stop
                     self.current_command = CMD_STOP
+                    self.current_steer = CMD_STEER_STOP
                 elif key == keyboard.Key.esc:
-                    # Emergency stop and quit
                     self.current_command = CMD_EMERGENCY
                     self.send_command(CMD_EMERGENCY)
                     time.sleep(0.2)
                     self.running = False
                     return False
 
+        except Exception as e:
+            pass
+
+    def on_key_release(self, key):
+        """Handle key release - stop steering when arrow released"""
+        try:
+            with self.command_lock:
+                if key in [keyboard.Key.left, keyboard.Key.right]:
+                    self.current_steer = CMD_STEER_STOP
         except Exception as e:
             pass
 
@@ -306,7 +338,7 @@ class RemoteControl:
 
         # Start keyboard listener
         print("Starting keyboard listener...")
-        with keyboard.Listener(on_press=self.on_key_press) as listener:
+        with keyboard.Listener(on_press=self.on_key_press, on_release=self.on_key_release) as listener:
             listener.join()
 
         # Cleanup

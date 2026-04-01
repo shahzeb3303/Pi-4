@@ -5,7 +5,7 @@ All configurable parameters in one place
 """
 
 # ==============================================================================
-# GPIO Pin Configuration (IBT_2 Motor Driver)
+# GPIO Pin Configuration (IBT_2 Drive Motor Driver)
 # ==============================================================================
 MOTOR_RPWM = 4       # GPIO 4 (Physical pin 7) - Forward PWM
 MOTOR_LPWM = 17      # GPIO 17 (Physical pin 11) - Backward PWM
@@ -14,9 +14,18 @@ MOTOR_L_EN = 27      # GPIO 27 (Physical pin 13) - Left Enable
 PWM_FREQUENCY = 1000 # Hz
 
 # ==============================================================================
+# GPIO Pin Configuration (IBT_2 Steering Motor Driver)
+# ==============================================================================
+STEER_RPWM = 22      # GPIO 22 (Physical pin 15) - Steer Right PWM
+STEER_LPWM = 23      # GPIO 23 (Physical pin 16) - Steer Left PWM
+STEER_R_EN = 24      # GPIO 24 (Physical pin 18) - Right Enable
+STEER_L_EN = 25      # GPIO 25 (Physical pin 22) - Left Enable
+STEER_SPEED = 70     # Default steering speed percentage
+
+# ==============================================================================
 # Serial Configuration (Arduino Communication)
 # ==============================================================================
-SERIAL_PORT = '/dev/ttyUSB0'  # Arduino serial port
+SERIAL_PORT = '/dev/ttyUSB1'  # Arduino serial port
 SERIAL_BAUD = 115200          # Baud rate (must match Arduino sketch)
 SERIAL_TIMEOUT = 0.05         # Timeout in seconds (50ms for fast response)
 
@@ -89,8 +98,11 @@ ALERT_EMERGENCY = 'EMERGENCY'  # Immediate danger (< 30cm)
 # ==============================================================================
 CMD_FORWARD = 'FORWARD'
 CMD_BACKWARD = 'BACKWARD'
+CMD_LEFT = 'LEFT'
+CMD_RIGHT = 'RIGHT'
+CMD_STEER_STOP = 'STEER_STOP'
 CMD_STOP = 'STOP'
 CMD_EMERGENCY = 'EMERGENCY'
 CMD_STATUS = 'STATUS'
 
-VALID_COMMANDS = [CMD_FORWARD, CMD_BACKWARD, CMD_STOP, CMD_EMERGENCY, CMD_STATUS]
+VALID_COMMANDS = [CMD_FORWARD, CMD_BACKWARD, CMD_LEFT, CMD_RIGHT, CMD_STEER_STOP, CMD_STOP, CMD_EMERGENCY, CMD_STATUS]

@@ -11,6 +11,7 @@ from datetime import datetime
 
 import config
 from motor_controller import MotorController
+from steering_controller import SteeringController
 from obstacle_monitor import ObstacleMonitor
 from remote_server import RemoteServer
 
@@ -22,12 +23,14 @@ class VehicleController:
     def __init__(self):
         """Initialize vehicle controller"""
         self.motor_controller = MotorController()
+        self.steering_controller = SteeringController()
         self.obstacle_monitor = ObstacleMonitor()
         self.remote_server = RemoteServer()
         self.running = False
 
         # State tracking
         self.current_command = config.CMD_STOP
+        self.current_steer = config.CMD_STEER_STOP
         self.actual_speed = 0
         self.requested_speed = 100
 
@@ -43,17 +46,22 @@ class VehicleController:
 
         try:
             # Initialize motor controller
-            print("\n[1/3] Initializing motor controller...")
+            print("\n[1/4] Initializing motor controller...")
             self.motor_controller.setup()
             print("✓ Motor controller ready")
 
+            # Initialize steering controller
+            print("\n[2/4] Initializing steering controller...")
+            self.steering_controller.setup()
+            print("✓ Steering controller ready")
+
             # Initialize obstacle monitor
-            print("\n[2/3] Initializing obstacle monitor...")
+            print("\n[3/4] Initializing obstacle monitor...")
             self.obstacle_monitor.start_monitoring()
             print("✓ Obstacle monitor ready")
 
             # Initialize remote server
-            print("\n[3/3] Starting remote server...")
+            print("\n[4/4] Starting remote server...")
             self.remote_server.start_server()
             print("✓ Remote server ready")
 
@@ -105,15 +113,20 @@ class VehicleController:
 
                 # 1. Get command from remote server (or use test mode)
                 if self.TEST_MODE:
-                    # TEST MODE: Automatically move forward at test speed
                     self.current_command = config.CMD_FORWARD
-                    safe_speed = self.test_speed  # Fixed test speed, ignore obstacles for testing
+                    safe_speed = self.test_speed
                     alert = "TEST_MODE"
                 else:
                     # Normal mode: Get command from laptop
-                    self.current_command = self.remote_server.get_latest_command()
+                    command = self.remote_server.get_latest_command()
 
-                    # 2. Get safe speed from obstacle monitor
+                    # Handle steering commands separately
+                    if command in [config.CMD_LEFT, config.CMD_RIGHT, config.CMD_STEER_STOP]:
+                        self.current_steer = command
+                    else:
+                        self.current_command = command
+
+                    # Get safe speed from obstacle monitor
                     if self.current_command == config.CMD_FORWARD:
                         safe_speed = self.obstacle_monitor.get_safe_speed(config.CMD_FORWARD)
                         alert = self.obstacle_monitor.get_alert_status(config.CMD_FORWARD)
@@ -133,6 +146,9 @@ class VehicleController:
                 # 3. Apply speed to motor controller
                 self.motor_controller.set_speed(self.current_command, safe_speed)
 
+                # 3b. Apply steering
+                self.steering_controller.set_direction(self.current_steer)
+
                 # 4. Get all distances
                 distances = self.obstacle_monitor.get_all_distances()
                 min_front = self.obstacle_monitor.get_minimum_distance('front')
@@ -141,6 +157,7 @@ class VehicleController:
                 # 5. Build status dictionary
                 status = {
                     'current_command': self.current_command,
+                    'current_steer': self.current_steer,
                     'actual_speed': self.actual_speed,
                     'requested_speed': self.requested_speed,
                     'alert_level': alert,
@@ -180,8 +197,10 @@ class VehicleController:
         timestamp = datetime.now().strftime("%H:%M:%S")
         connected = "CONNECTED" if status['connected'] else "DISCONNECTED"
 
+        steer = status.get('current_steer', 'STRAIGHT')
         print(f"[{timestamp}] {connected:12s} | "
               f"Cmd: {status['current_command']:8s} | "
+              f"Steer: {steer:10s} | "
               f"Speed: {status['actual_speed']:3d}% | "
               f"Alert: {status['alert_level']:9s} | "
               f"Front: {status['min_distance_front']:6.1f}cm | "
@@ -203,16 +222,23 @@ class VehicleController:
 
         self.running = False
 
-        # Stop motor first (safety)
-        print("\n[1/4] Stopping motor...")
+        # Stop motors first (safety)
+        print("\n[1/5] Stopping drive motor...")
         try:
             self.motor_controller.stop()
-            print("✓ Motor stopped")
+            print("✓ Drive motor stopped")
         except Exception as e:
-            print(f"✗ Error stopping motor: {e}")
+            print(f"✗ Error stopping drive motor: {e}")
+
+        print("\n[2/5] Stopping steering motor...")
+        try:
+            self.steering_controller.stop()
+            print("✓ Steering motor stopped")
+        except Exception as e:
+            print(f"✗ Error stopping steering motor: {e}")
 
         # Stop remote server
-        print("\n[2/4] Stopping remote server...")
+        print("\n[3/5] Stopping remote server...")
         try:
             self.remote_server.stop_server()
             print("✓ Remote server stopped")
@@ -220,17 +246,18 @@ class VehicleController:
             print(f"✗ Error stopping server: {e}")
 
         # Stop obstacle monitor
-        print("\n[3/4] Stopping obstacle monitor...")
+        print("\n[4/5] Stopping obstacle monitor...")
         try:
             self.obstacle_monitor.stop_monitoring()
             print("✓ Obstacle monitor stopped")
         except Exception as e:
             print(f"✗ Error stopping monitor: {e}")
 
-        # Cleanup motor controller GPIO
-        print("\n[4/4] Cleaning up GPIO...")
+        # Cleanup GPIO
+        print("\n[5/5] Cleaning up GPIO...")
         try:
             self.motor_controller.cleanup()
+            self.steering_controller.cleanup()
             print("✓ GPIO cleanup complete")
         except Exception as e:
             print(f"✗ Error cleaning up GPIO: {e}")
