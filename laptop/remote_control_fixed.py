@@ -32,6 +32,7 @@ CMD_RIGHT = 'RIGHT'
 CMD_STEER_STOP = 'STEER_STOP'
 CMD_STOP = 'STOP'
 CMD_EMERGENCY = 'EMERGENCY'
+CMD_AUTONOMOUS = 'AUTONOMOUS'
 
 # ANSI color codes
 class Colors:
@@ -60,6 +61,7 @@ class RemoteControl:
         # Current command (press once to set, stays until changed)
         self.current_command = CMD_STOP
         self.current_steer = CMD_STEER_STOP
+        self.autonomous_mode = False
         self.command_lock = threading.Lock()
         self.status = None
         self.status_lock = threading.Lock()
@@ -188,6 +190,24 @@ class RemoteControl:
             print(Colors.BOLD + "║" + " " * 16 + "VEHICLE REMOTE CONTROL" + " " * 24 + "║" + Colors.RESET)
             print(Colors.BOLD + "╠" + "═" * 62 + "╣" + Colors.RESET)
 
+            # Mode display
+            if self.status:
+                mode = self.status.get('mode', 'MANUAL')
+                auto_state = self.status.get('auto_state', '')
+            else:
+                mode = "AUTO" if self.autonomous_mode else "MANUAL"
+                auto_state = ""
+
+            if mode == "AUTO":
+                mode_text = f"{Colors.GREEN}AUTONOMOUS{Colors.RESET}"
+                if auto_state:
+                    mode_text += f" - {Colors.CYAN}{auto_state}{Colors.RESET}"
+            else:
+                mode_text = f"{Colors.YELLOW}MANUAL{Colors.RESET}"
+
+            print(f"║  Mode: {mode_text:55s}    ║")
+            print(Colors.BOLD + "╠" + "═" * 62 + "╣" + Colors.RESET)
+
             # Connection status
             if self.connected:
                 conn_text = f"{Colors.GREEN}CONNECTED{Colors.RESET} to {self.pi_ip}"
@@ -246,11 +266,12 @@ class RemoteControl:
             # Controls
             print(Colors.BOLD + "╠" + "═" * 62 + "╣" + Colors.RESET)
             print("║  Controls:                                                 ║")
-            print("║    ↑ (Up Arrow)    : Move Forward (PRESS ONCE)             ║")
-            print("║    ↓ (Down Arrow)  : Move Backward (PRESS ONCE)            ║")
-            print("║    ← (Left Arrow)  : Steer Left (HOLD)                    ║")
-            print("║    → (Right Arrow) : Steer Right (HOLD)                   ║")
-            print("║    SPACE           : Stop All                              ║")
+            print(f"║    {Colors.GREEN}A{Colors.RESET}              : Toggle Autonomous Mode                 ║")
+            print("║    ↑ (Up Arrow)    : Move Forward  (manual only)           ║")
+            print("║    ↓ (Down Arrow)  : Move Backward (manual only)           ║")
+            print("║    ← (Left Arrow)  : Steer Left    (manual only, HOLD)     ║")
+            print("║    → (Right Arrow) : Steer Right   (manual only, HOLD)     ║")
+            print("║    SPACE           : Stop All + Exit Auto Mode             ║")
             print("║    ESC             : Emergency Stop & Quit                 ║")
             print(Colors.BOLD + "╚" + "═" * 62 + "╝" + Colors.RESET)
 
@@ -281,18 +302,38 @@ class RemoteControl:
         """Handle key press events - press once to set command"""
         try:
             with self.command_lock:
+                # Check for 'A' key to toggle autonomous mode
+                if hasattr(key, 'char') and key.char == 'a':
+                    self.autonomous_mode = not self.autonomous_mode
+                    self.send_command(CMD_AUTONOMOUS)
+                    if self.autonomous_mode:
+                        self.current_command = CMD_STOP
+                        self.current_steer = CMD_STEER_STOP
+                    return
+
                 if key == keyboard.Key.up:
+                    if self.autonomous_mode:
+                        return  # Ignore manual controls in auto mode
                     self.current_command = CMD_FORWARD
                 elif key == keyboard.Key.down:
+                    if self.autonomous_mode:
+                        return
                     self.current_command = CMD_BACKWARD
                 elif key == keyboard.Key.left:
+                    if self.autonomous_mode:
+                        return
                     self.current_steer = CMD_LEFT
                 elif key == keyboard.Key.right:
+                    if self.autonomous_mode:
+                        return
                     self.current_steer = CMD_RIGHT
                 elif key == keyboard.Key.space:
+                    # Space always works - stops everything and exits auto mode
+                    self.autonomous_mode = False
                     self.current_command = CMD_STOP
                     self.current_steer = CMD_STEER_STOP
                 elif key == keyboard.Key.esc:
+                    self.autonomous_mode = False
                     self.current_command = CMD_EMERGENCY
                     self.send_command(CMD_EMERGENCY)
                     time.sleep(0.2)

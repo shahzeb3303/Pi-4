@@ -14,6 +14,7 @@ from motor_controller import MotorController
 from steering_controller import SteeringController
 from obstacle_monitor import ObstacleMonitor
 from remote_server import RemoteServer
+from autonomous_controller import AutonomousController
 
 class VehicleController:
     """
@@ -26,6 +27,7 @@ class VehicleController:
         self.steering_controller = SteeringController()
         self.obstacle_monitor = ObstacleMonitor()
         self.remote_server = RemoteServer()
+        self.autonomous = AutonomousController()
         self.running = False
 
         # State tracking
@@ -33,10 +35,6 @@ class VehicleController:
         self.current_steer = config.CMD_STEER_STOP
         self.actual_speed = 0
         self.requested_speed = 100
-
-        # TEST MODE - Set to True to automatically move forward for testing
-        self.TEST_MODE = False  # Changed back to normal mode
-        self.test_speed = 50  # Test speed percentage
 
     def initialize(self):
         """Initialize all subsystems"""
@@ -104,29 +102,43 @@ class VehicleController:
         self._control_loop()
 
     def _control_loop(self):
-        """Main control loop (10Hz)"""
+        """Main control loop (20Hz)"""
         loop_count = 0
 
         while self.running:
             try:
                 loop_start = time.time()
 
-                # 1. Get command from remote server (or use test mode)
-                if self.TEST_MODE:
-                    self.current_command = config.CMD_FORWARD
-                    safe_speed = self.test_speed
-                    alert = "TEST_MODE"
-                else:
-                    # Normal mode: Get command from laptop
-                    command = self.remote_server.get_latest_command()
+                # 1. Get command from remote server
+                command = self.remote_server.get_latest_command()
 
-                    # Handle steering commands separately
+                # Check for autonomous mode toggle
+                if command == config.CMD_AUTONOMOUS:
+                    if self.autonomous.is_active():
+                        self.autonomous.deactivate()
+                        self.current_command = config.CMD_STOP
+                        self.current_steer = config.CMD_STEER_STOP
+                    else:
+                        self.autonomous.activate()
+
+                # 2. Decide drive/steer based on mode
+                distances = self.obstacle_monitor.get_all_distances()
+
+                if self.autonomous.is_active():
+                    # AUTONOMOUS MODE
+                    drive_cmd, steer_cmd, speed = self.autonomous.decide(distances)
+                    self.current_command = drive_cmd
+                    self.current_steer = steer_cmd
+                    safe_speed = speed
+                    alert = self.autonomous.get_state()
+
+                else:
+                    # MANUAL MODE
                     if command in [config.CMD_LEFT, config.CMD_RIGHT, config.CMD_STEER_STOP]:
                         self.current_steer = command
-                    else:
+                    elif command != config.CMD_AUTONOMOUS:
                         self.current_command = command
 
-                    # Get safe speed from obstacle monitor
                     if self.current_command == config.CMD_FORWARD:
                         safe_speed = self.obstacle_monitor.get_safe_speed(config.CMD_FORWARD)
                         alert = self.obstacle_monitor.get_alert_status(config.CMD_FORWARD)
@@ -136,25 +148,23 @@ class VehicleController:
                     elif self.current_command == config.CMD_EMERGENCY:
                         safe_speed = 0
                         alert = config.ALERT_EMERGENCY
-                    else:  # STOP
+                    else:
                         safe_speed = 0
                         alert = config.ALERT_CLEAR
 
-                # Store actual speed
+                # 3. Apply to motors
                 self.actual_speed = safe_speed
-
-                # 3. Apply speed to motor controller
                 self.motor_controller.set_speed(self.current_command, safe_speed)
-
-                # 3b. Apply steering
                 self.steering_controller.set_direction(self.current_steer)
 
-                # 4. Get all distances
-                distances = self.obstacle_monitor.get_all_distances()
+                # 4. Get min distances for status
                 min_front = self.obstacle_monitor.get_minimum_distance('front')
                 min_back = self.obstacle_monitor.get_minimum_distance('back')
 
-                # 5. Build status dictionary
+                # 5. Build status
+                mode = "AUTO" if self.autonomous.is_active() else "MANUAL"
+                auto_state = self.autonomous.get_state() if self.autonomous.is_active() else ""
+
                 status = {
                     'current_command': self.current_command,
                     'current_steer': self.current_steer,
@@ -164,21 +174,19 @@ class VehicleController:
                     'distances': distances,
                     'min_distance_front': min_front if min_front else 0,
                     'min_distance_back': min_back if min_back else 0,
-                    'connected': self.remote_server.is_connected()
+                    'connected': self.remote_server.is_connected(),
+                    'mode': mode,
+                    'auto_state': auto_state
                 }
 
-                # 6. Send status back to laptop
+                # 6. Send status to laptop
                 if self.remote_server.is_connected():
                     self.remote_server.send_status(status)
 
-                # 7. Print status (every 7 loops = ~3 times per second at 20Hz)
+                # 7. Print status
                 loop_count += 1
                 if loop_count % 7 == 0:
                     self._print_status(status)
-
-                # DEBUG: Print every command and speed (comment out after debugging)
-                if loop_count % 10 == 0:  # Every 0.5 seconds at 20Hz
-                    print(f"[DEBUG] Command={self.current_command}, Safe Speed={safe_speed}%, Alert={alert}")
 
                 # 8. Sleep to maintain loop frequency
                 elapsed = time.time() - loop_start
@@ -189,20 +197,25 @@ class VehicleController:
                 break
             except Exception as e:
                 print(f"\n[ERROR] Control loop error: {e}")
-                # Don't stop completely, try to continue
                 time.sleep(0.1)
 
     def _print_status(self, status):
         """Print status to console"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         connected = "CONNECTED" if status['connected'] else "DISCONNECTED"
-
+        mode = status.get('mode', 'MANUAL')
+        auto_state = status.get('auto_state', '')
         steer = status.get('current_steer', 'STRAIGHT')
+
+        mode_str = f"{mode}"
+        if auto_state:
+            mode_str += f":{auto_state}"
+
         print(f"[{timestamp}] {connected:12s} | "
+              f"{mode_str:20s} | "
               f"Cmd: {status['current_command']:8s} | "
               f"Steer: {steer:10s} | "
               f"Speed: {status['actual_speed']:3d}% | "
-              f"Alert: {status['alert_level']:9s} | "
               f"Front: {status['min_distance_front']:6.1f}cm | "
               f"Back: {status['min_distance_back']:6.1f}cm")
 

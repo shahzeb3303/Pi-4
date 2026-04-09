@@ -4,16 +4,16 @@
 
 ---
 
-## 1. IBT_2 Motor Driver → Raspberry Pi
+## 1. IBT_2 Drive Motor Driver → Raspberry Pi
 
 ### Control Wires (5 connections):
 
 | Wire # | IBT_2 Pin | → | Raspberry Pi | Physical Pin | Description |
 |--------|-----------|---|--------------|--------------|-------------|
-| 1 | **RPWM** | → | **GPIO 12** | **Pin 32** | Forward PWM signal |
-| 2 | **LPWM** | → | **GPIO 13** | **Pin 33** | Backward PWM signal |
-| 3 | **R_EN** | → | **GPIO 23** | **Pin 16** | Right Enable |
-| 4 | **L_EN** | → | **GPIO 24** | **Pin 18** | Left Enable |
+| 1 | **RPWM** | → | **GPIO 4** | **Pin 7** | Forward PWM signal |
+| 2 | **LPWM** | → | **GPIO 17** | **Pin 11** | Backward PWM signal |
+| 3 | **R_EN** | → | **GPIO 18** | **Pin 12** | Right Enable |
+| 4 | **L_EN** | → | **GPIO 27** | **Pin 13** | Left Enable |
 | 5 | **GND** | → | **GND** | **Pin 6** | Ground |
 
 ### Power Connections:
@@ -23,21 +23,32 @@
 | **Vcc (5V small pin)** | **LM2596 OUT+** | 5V logic power from LM2596 |
 | **Vcc (big terminal)** | **Power Supply +** | Motor power (12V or 24V) |
 | **GND (big terminal)** | **Power Supply -** | Motor power ground |
-| **B+** | **Motor +** | Motor positive wire (Red) |
-| **B-** | **Motor -** | Motor negative wire (Black) |
+| **B+** | **Drive Motor +** | Motor positive wire (Red) |
+| **B-** | **Drive Motor -** | Motor negative wire (Black) |
 
 ---
 
-## 2. Waterproof Ultrasonic Sensor → Raspberry Pi
+## 2. IBT_2 Steering Motor Driver → Raspberry Pi
 
-### Sensor Wires (4 connections):
+### Control Wires (5 connections):
 
-| Wire # | Sensor Wire Color | → | Raspberry Pi | Physical Pin | Description |
-|--------|-------------------|---|--------------|--------------|-------------|
-| 1 | **VCC (Red)** | → | **5V** | **Pin 2** | Power |
-| 2 | **GND (Black)** | → | **GND** | **Pin 14** | Ground |
-| 3 | **TRIG (Yellow)** | → | **GPIO 17** | **Pin 11** | Trigger signal |
-| 4 | **ECHO (Green)** | → | **GPIO 27** | **Pin 13** | Echo signal |
+| Wire # | IBT_2 Pin | → | Raspberry Pi | Physical Pin | Description |
+|--------|-----------|---|--------------|--------------|-------------|
+| 1 | **RPWM** | → | **GPIO 22** | **Pin 15** | Steer Right PWM signal |
+| 2 | **LPWM** | → | **GPIO 23** | **Pin 16** | Steer Left PWM signal |
+| 3 | **R_EN** | → | **GPIO 24** | **Pin 18** | Right Enable |
+| 4 | **L_EN** | → | **GPIO 25** | **Pin 22** | Left Enable |
+| 5 | **GND** | → | **GND** | **Pin 14** | Ground |
+
+### Power Connections:
+
+| IBT_2 Pin | Connect To | Description |
+|-----------|------------|-------------|
+| **Vcc (5V small pin)** | **LM2596 OUT+** | 5V logic power from LM2596 |
+| **Vcc (big terminal)** | **Power Supply +** | Motor power (12V or 24V) |
+| **GND (big terminal)** | **Power Supply -** | Motor power ground |
+| **B+** | **Steering Motor +** | Motor positive wire (Red) |
+| **B-** | **Steering Motor -** | Motor negative wire (Black) |
 
 ---
 
@@ -45,7 +56,7 @@
 
 | Arduino | → | Raspberry Pi |
 |---------|---|--------------|
-| **USB Port** | → | **USB Port** | (will appear as /dev/ttyUSB0 or /dev/ttyACM0) |
+| **USB Port** | → | **USB Port** | (will appear as /dev/ttyUSB0 or /dev/ttyUSB1) |
 
 ---
 
@@ -80,7 +91,7 @@
 
 | LM2596 Pin | Connect To |
 |------------|------------|
-| **OUT+** | IBT_2 Vcc (5V logic pin) |
+| **OUT+** | Both IBT_2 Vcc (5V logic pins) |
 | **OUT-** | Common Ground |
 
 ---
@@ -97,39 +108,56 @@ POWER SUPPLY (12V/24V)
     │                                    │
     ├──> LM2596 IN+                     │
     │                                    │
-    └──> IBT_2 Motor Power Vcc          │
+    ├──> IBT_2 Drive Motor Power Vcc    │
+    │                                    │
+    └──> IBT_2 Steering Motor Power Vcc │
                                          │
 LM2596                              COMMON GND
-  OUT+ (5V) ──> IBT_2 Logic Vcc         │
+  OUT+ (5V) ──> Both IBT_2 Logic Vcc    │
   OUT- ────────────────────────────────>│
 
 
 RASPBERRY PI (40-pin header)               COMMON GND
 ════════════════════════════                    │
-Pin 2  [5V]       ──> Waterproof VCC           │
-Pin 6  [GND]      ──> IBT_2 GND ──────────────>│
-Pin 11 [GPIO 17]  ──> Waterproof TRIG          │
-Pin 13 [GPIO 27]  ──> Waterproof ECHO          │
-Pin 14 [GND]      ──> Waterproof GND ─────────>│
-Pin 16 [GPIO 23]  ──> IBT_2 R_EN               │
-Pin 18 [GPIO 24]  ──> IBT_2 L_EN               │
-Pin 32 [GPIO 12]  ──> IBT_2 RPWM               │
-Pin 33 [GPIO 13]  ──> IBT_2 LPWM               │
+Pin 6  [GND]      ──> IBT_2 Drive GND ────────>│
+Pin 7  [GPIO 4]   ──> IBT_2 Drive RPWM         │
+Pin 11 [GPIO 17]  ──> IBT_2 Drive LPWM         │
+Pin 12 [GPIO 18]  ──> IBT_2 Drive R_EN         │
+Pin 13 [GPIO 27]  ──> IBT_2 Drive L_EN         │
+Pin 14 [GND]      ──> IBT_2 Steering GND ─────>│
+Pin 15 [GPIO 22]  ──> IBT_2 Steering RPWM      │
+Pin 16 [GPIO 23]  ──> IBT_2 Steering LPWM      │
+Pin 18 [GPIO 24]  ──> IBT_2 Steering R_EN      │
+Pin 22 [GPIO 25]  ──> IBT_2 Steering L_EN      │
 [USB Port]        ──> Arduino USB              │
                                                 │
                                                 │
-IBT_2 MOTOR DRIVER                              │
-══════════════════                              │
-RPWM  <─── Pi GPIO 12                          │
-LPWM  <─── Pi GPIO 13                          │
-R_EN  <─── Pi GPIO 23                          │
-L_EN  <─── Pi GPIO 24                          │
-GND   <─── Pi GND ─────────────────────────────>│
+IBT_2 DRIVE MOTOR DRIVER                        │
+═══════════════════════                         │
+RPWM  <─── Pi GPIO 4  (Pin 7)                  │
+LPWM  <─── Pi GPIO 17 (Pin 11)                 │
+R_EN  <─── Pi GPIO 18 (Pin 12)                 │
+L_EN  <─── Pi GPIO 27 (Pin 13)                 │
+GND   <─── Pi GND (Pin 6) ────────────────────>│
 Vcc(5V) <─ LM2596 5V                           │
 Vcc(12V) <─ Power Supply +                     │
-GND(pwr) <─ Power Supply - ────────────────────>│
-B+    ──> Motor +                              │
-B-    ──> Motor -                              │
+GND(pwr) <─ Power Supply - ───────────────────>│
+B+    ──> Drive Motor +                         │
+B-    ──> Drive Motor -                         │
+                                                │
+                                                │
+IBT_2 STEERING MOTOR DRIVER                     │
+═══════════════════════════                     │
+RPWM  <─── Pi GPIO 22 (Pin 15)                 │
+LPWM  <─── Pi GPIO 23 (Pin 16)                 │
+R_EN  <─── Pi GPIO 24 (Pin 18)                 │
+L_EN  <─── Pi GPIO 25 (Pin 22)                 │
+GND   <─── Pi GND (Pin 14) ───────────────────>│
+Vcc(5V) <─ LM2596 5V                           │
+Vcc(12V) <─ Power Supply +                     │
+GND(pwr) <─ Power Supply - ───────────────────>│
+B+    ──> Steering Motor +                      │
+B-    ──> Steering Motor -                      │
 
 
 ARDUINO UNO                                     │
@@ -157,19 +185,17 @@ USB ──> Raspberry Pi USB                       │
          FRONT OF VEHICLE
 
     FL          FW          FR
-    👁️          👁️          👁️
-  (Arduino)    (Pi)     (Arduino)
-    D2/D3    GPIO17/27    D4/D5
+    (Arduino)  (Arduino)  (Arduino)
+    D2/D3      D12/D13     D4/D5
 
 
-LS 👁️  [====== VEHICLE ======]  👁️ RS
+LS  [====== VEHICLE ======]  RS
  (Arduino)                    (Arduino)
   D8/D9                        D10/D11
 
 
 
               BC
-              👁️
           (Arduino)
            D6/D7
 
@@ -178,17 +204,37 @@ LS 👁️  [====== VEHICLE ======]  👁️ RS
 
 ---
 
+## GPIO Pin Summary
+
+```
+Pi Physical Pin Layout (pins used):
+
+  Pin 6  [GND]     - Drive IBT_2 GND
+  Pin 7  [GPIO 4]  - Drive RPWM (Forward)
+  Pin 11 [GPIO 17] - Drive LPWM (Backward)
+  Pin 12 [GPIO 18] - Drive R_EN
+  Pin 13 [GPIO 27] - Drive L_EN
+  Pin 14 [GND]     - Steering IBT_2 GND
+  Pin 15 [GPIO 22] - Steering RPWM (Right)
+  Pin 16 [GPIO 23] - Steering LPWM (Left)
+  Pin 18 [GPIO 24] - Steering R_EN
+  Pin 22 [GPIO 25] - Steering L_EN
+```
+
+---
+
 ## Ground Connections - CRITICAL!
 
 **ALL these grounds MUST be connected together:**
 
-✅ Raspberry Pi GND (Pin 6, 14, or any GND pin)
-✅ IBT_2 GND (control side)
-✅ IBT_2 GND (motor power side)
-✅ Power Supply GND (-)
-✅ LM2596 GND (OUT-)
-✅ Waterproof Sensor GND
-✅ Arduino GND (connected via USB already)
+- Raspberry Pi GND (Pin 6, 14, or any GND pin)
+- IBT_2 Drive GND (control side)
+- IBT_2 Drive GND (motor power side)
+- IBT_2 Steering GND (control side)
+- IBT_2 Steering GND (motor power side)
+- Power Supply GND (-)
+- LM2596 GND (OUT-)
+- Arduino GND (connected via USB already)
 
 **Use a terminal block or breadboard to connect all grounds to one point!**
 
@@ -198,11 +244,12 @@ LS 👁️  [====== VEHICLE ======]  👁️ RS
 
 ### Before Powering On:
 
-- [ ] All 5 IBT_2 control wires connected to Pi (RPWM, LPWM, R_EN, L_EN, GND)
-- [ ] IBT_2 logic power from LM2596 5V output
-- [ ] IBT_2 motor power from main power supply (12V/24V)
-- [ ] Motor connected to IBT_2 B+ and B-
-- [ ] Waterproof sensor 4 wires connected to Pi (VCC, GND, TRIG, ECHO)
+- [ ] All 5 Drive IBT_2 control wires connected to Pi (Pin 7, 11, 12, 13, 6)
+- [ ] All 5 Steering IBT_2 control wires connected to Pi (Pin 15, 16, 18, 22, 14)
+- [ ] Both IBT_2 logic power from LM2596 5V output
+- [ ] Both IBT_2 motor power from main power supply (12V/24V)
+- [ ] Drive motor connected to Drive IBT_2 B+ and B-
+- [ ] Steering motor connected to Steering IBT_2 B+ and B-
 - [ ] Arduino USB connected to Pi
 - [ ] Arduino has 5 HC-SR04 sensors wired
 - [ ] LM2596 adjusted to output exactly 5.0V
@@ -216,40 +263,23 @@ LS 👁️  [====== VEHICLE ======]  👁️ RS
 
 ---
 
-## Wire Colors (Suggested)
-
-| Connection | Suggested Wire Color |
-|------------|---------------------|
-| RPWM | Yellow |
-| LPWM | Orange |
-| R_EN | Blue |
-| L_EN | Purple |
-| GND | Black |
-| 5V | Red |
-| TRIG | Green |
-| ECHO | White |
-
-**Note:** These are just suggestions. Use whatever wires you have, but label them clearly!
-
----
-
 ## Troubleshooting Pin Connections
 
-### Motor doesn't move:
-- Check all 5 IBT_2 control wires
+### Drive motor doesn't move:
+- Check all 5 Drive IBT_2 control wires (Pin 7, 11, 12, 13, 6)
 - Verify GPIO pin numbers in code match physical connections
 - Check motor power supply is on
 - Verify LM2596 outputs 5V
 
-### Waterproof sensor reads 0:
-- Check all 4 sensor wires
-- Verify GPIO 17 (TRIG) and GPIO 27 (ECHO)
-- Check 5V power to sensor
-- Run waterproof sensor test: `sudo python3 waterproof_sensor.py`
+### Steering motor doesn't move:
+- Check all 5 Steering IBT_2 control wires (Pin 15, 16, 18, 22, 14)
+- Verify GPIO pin numbers in code match physical connections
+- Check motor power supply is on
+- Verify LM2596 outputs 5V
 
 ### Arduino sensors don't work:
 - Check USB connection
-- Verify serial port (/dev/ttyUSB0 or /dev/ttyACM0)
+- Verify serial port (/dev/ttyUSB0 or /dev/ttyUSB1)
 - Check Arduino code is uploaded
 - Verify Arduino HC-SR04 wiring
 - Test with Arduino Serial Monitor (115200 baud)

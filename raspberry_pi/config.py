@@ -25,7 +25,7 @@ STEER_SPEED = 70     # Default steering speed percentage
 # ==============================================================================
 # Serial Configuration (Arduino Communication)
 # ==============================================================================
-SERIAL_PORT = '/dev/ttyUSB1'  # Arduino serial port
+SERIAL_PORT = '/dev/ttyUSB0'  # Arduino serial port
 SERIAL_BAUD = 115200          # Baud rate (must match Arduino sketch)
 SERIAL_TIMEOUT = 0.05         # Timeout in seconds (50ms for fast response)
 
@@ -105,4 +105,36 @@ CMD_STOP = 'STOP'
 CMD_EMERGENCY = 'EMERGENCY'
 CMD_STATUS = 'STATUS'
 
-VALID_COMMANDS = [CMD_FORWARD, CMD_BACKWARD, CMD_LEFT, CMD_RIGHT, CMD_STEER_STOP, CMD_STOP, CMD_EMERGENCY, CMD_STATUS]
+CMD_AUTONOMOUS = 'AUTONOMOUS'
+
+VALID_COMMANDS = [CMD_FORWARD, CMD_BACKWARD, CMD_LEFT, CMD_RIGHT, CMD_STEER_STOP, CMD_STOP, CMD_EMERGENCY, CMD_STATUS, CMD_AUTONOMOUS]
+
+# ==============================================================================
+# Autonomous Mode Settings
+# ==============================================================================
+AUTO_CRUISE_SPEED = 50           # Normal cruising speed (%)
+AUTO_SLOW_SPEED = 30             # Reduced speed when obstacle detected (%)
+AUTO_REVERSE_SPEED = 40          # Reverse speed (%)
+AUTO_STEER_SPEED = 70            # Steering speed during avoidance (%)
+
+# Distance thresholds for autonomous decisions (cm)
+AUTO_DISTANCE_CRUISE = 200       # >= 200cm: cruise at full auto speed
+AUTO_DISTANCE_SLOW = 100         # 100-200cm: slow down and prepare to avoid
+AUTO_DISTANCE_AVOID = 70         # < 70cm: start avoidance maneuver (turn)
+AUTO_DISTANCE_EMERGENCY = 40     # < 40cm: emergency stop (sudden obstacle)
+AUTO_DISTANCE_REAR_SAFE = 80     # > 80cm behind: safe to reverse
+AUTO_DISTANCE_SIDE_MIN = 50      # Minimum side clearance to turn that direction
+
+# Timing for autonomous maneuvers (seconds)
+AUTO_REVERSE_TIME = 1.5          # How long to reverse after emergency stop
+AUTO_TURN_TIME = 1.5             # How long to turn after reversing
+AUTO_WAIT_TIMEOUT = 10.0         # Max seconds to wait before retrying
+
+# Autonomous states
+AUTO_STATE_CRUISING = 'CRUISING'
+AUTO_STATE_SLOWING = 'SLOWING'
+AUTO_STATE_AVOIDING = 'AVOIDING'
+AUTO_STATE_EMERGENCY = 'EMERGENCY_STOP'
+AUTO_STATE_REVERSING = 'REVERSING'
+AUTO_STATE_TURNING = 'TURNING'
+AUTO_STATE_WAITING = 'WAITING'
