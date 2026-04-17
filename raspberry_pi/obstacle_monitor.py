@@ -140,9 +140,9 @@ class ObstacleMonitor:
         # Get minimum distance in this direction
         min_distance = self.get_minimum_distance(sensor_direction)
 
-        # If no valid reading, stop for safety
+        # If no valid reading, allow full speed — no data means no confirmed obstacle
         if min_distance is None or min_distance <= 0:
-            return config.SPEED_STOP
+            return config.SPEED_FULL
 
         # Apply speed thresholds
         if min_distance >= config.DISTANCE_SAFE:
@@ -179,9 +179,9 @@ class ObstacleMonitor:
         # Get minimum distance
         min_distance = self.get_minimum_distance(sensor_direction)
 
-        # If no valid reading, return emergency for safety
+        # If no valid reading, return clear — no data means no confirmed obstacle
         if min_distance is None or min_distance <= 0:
-            return config.ALERT_EMERGENCY
+            return config.ALERT_CLEAR
 
         # Determine alert level
         if min_distance >= config.DISTANCE_SAFE:

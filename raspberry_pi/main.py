@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-Main Integration Script
-Integrates motor control, obstacle monitoring, and remote server
+Main Integration Script (Pi side)
+
+Architecture:
+    - Laptop sends commands via TCP (manual or ML-generated)
+    - Pi reads ultrasonic sensors (via Arduino) + GPS
+    - Pi runs safety_governor as a hard-override layer
+    - Pi sends sensor + GPS status back to laptop (for ML inference)
 """
 
 import time
 import signal
-import sys
 from datetime import datetime
 
 import config
@@ -14,292 +18,190 @@ from motor_controller import MotorController
 from steering_controller import SteeringController
 from obstacle_monitor import ObstacleMonitor
 from remote_server import RemoteServer
-from autonomous_controller import AutonomousController
+from safety_governor import SafetyGovernor, SafetyViolation
+
+try:
+    from gps_reader import GPSReader
+    GPS_ENABLED = True
+except ImportError:
+    GPS_ENABLED = False
+
 
 class VehicleController:
-    """
-    Main vehicle controller - integrates all subsystems
-    """
-
     def __init__(self):
-        """Initialize vehicle controller"""
-        self.motor_controller = MotorController()
-        self.steering_controller = SteeringController()
-        self.obstacle_monitor = ObstacleMonitor()
-        self.remote_server = RemoteServer()
-        self.autonomous = AutonomousController()
-        self.running = False
+        self.motor = MotorController()
+        self.steering = SteeringController()
+        self.sensors = ObstacleMonitor()
+        self.server = RemoteServer()
+        self.safety = SafetyGovernor()
+        self.gps = GPSReader() if GPS_ENABLED else None
 
-        # State tracking
-        self.current_command = config.CMD_STOP
+        self.running = False
+        self.current_drive = config.CMD_STOP
         self.current_steer = config.CMD_STEER_STOP
-        self.actual_speed = 0
-        self.requested_speed = 100
+        self.current_speed = 0
+        self.last_violation = SafetyViolation.NONE
 
     def initialize(self):
-        """Initialize all subsystems"""
         print("=" * 60)
-        print("VEHICLE CONTROL SYSTEM - INITIALIZATION")
+        print("VEHICLE CONTROL SYSTEM - Pi Side")
         print("=" * 60)
-
         try:
-            # Initialize motor controller
-            print("\n[1/4] Initializing motor controller...")
-            self.motor_controller.setup()
-            print("✓ Motor controller ready")
-
-            # Initialize steering controller
-            print("\n[2/4] Initializing steering controller...")
-            self.steering_controller.setup()
-            print("✓ Steering controller ready")
-
-            # Initialize obstacle monitor
-            print("\n[3/4] Initializing obstacle monitor...")
-            self.obstacle_monitor.start_monitoring()
-            print("✓ Obstacle monitor ready")
-
-            # Initialize remote server
-            print("\n[4/4] Starting remote server...")
-            self.remote_server.start_server()
-            print("✓ Remote server ready")
-
-            print("\n" + "=" * 60)
-            print("INITIALIZATION COMPLETE")
+            print("[1/5] Motor controller...")
+            self.motor.setup()
+            print("[2/5] Steering controller...")
+            self.steering.setup()
+            print("[3/5] Obstacle monitor (Arduino)...")
+            self.sensors.start_monitoring()
+            print("[4/5] Remote server...")
+            self.server.start_server()
+            print("[5/5] GPS reader...")
+            if self.gps:
+                self.gps.start()
             print("=" * 60)
-
-            if self.TEST_MODE:
-                print("\n*** TEST MODE ENABLED ***")
-                print(f"Motor will automatically move FORWARD at {self.test_speed}% speed")
-                print("This bypasses laptop control and obstacle detection")
-                print("Use this to verify motor hardware is working")
-                print("\nPress Ctrl+C to stop")
-            else:
-                print("\nWaiting for laptop connection...")
-                print(f"Laptop should connect to: <Pi IP Address>:{config.SERVER_PORT}")
-                print("\nPress Ctrl+C to stop")
-
-            print("=" * 60 + "\n")
-
+            print(f"READY. Waiting for laptop on port {config.SERVER_PORT}")
+            print("=" * 60)
             return True
-
         except Exception as e:
-            print(f"\n✗ Initialization failed: {e}")
+            print(f"Init failed: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def start(self):
-        """Start main control loop"""
         if not self.initialize():
-            print("Failed to initialize. Exiting.")
             return
-
         self.running = True
-
-        # Setup signal handler for graceful shutdown
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
-        # Main control loop
+        signal.signal(signal.SIGINT, self._sig_handler)
+        signal.signal(signal.SIGTERM, self._sig_handler)
         self._control_loop()
 
     def _control_loop(self):
-        """Main control loop (20Hz)"""
         loop_count = 0
-
         while self.running:
+            loop_start = time.time()
             try:
-                loop_start = time.time()
+                # 1. Read commands from laptop
+                drive_cmd = self.server.get_latest_command()
+                steer_cmd = self.server.get_latest_steer()
+                requested_speed = self.server.get_latest_speed()
+                cmd_timestamp = self.server.get_command_timestamp()
 
-                # 1. Get command from remote server
-                command = self.remote_server.get_latest_command()
+                # 2. Read sensors
+                distances = self.sensors.get_all_distances()
 
-                # Check for autonomous mode toggle
-                if command == config.CMD_AUTONOMOUS:
-                    if self.autonomous.is_active():
-                        self.autonomous.deactivate()
-                        self.current_command = config.CMD_STOP
-                        self.current_steer = config.CMD_STEER_STOP
-                    else:
-                        self.autonomous.activate()
+                # 3. Safety governor (HARD override)
+                decision = self.safety.check(distances, drive_cmd, cmd_timestamp)
+                self.last_violation = decision.violation
 
-                # 2. Decide drive/steer based on mode
-                distances = self.obstacle_monitor.get_all_distances()
-
-                if self.autonomous.is_active():
-                    # AUTONOMOUS MODE
-                    drive_cmd, steer_cmd, speed = self.autonomous.decide(distances)
-                    self.current_command = drive_cmd
+                if decision.is_safe:
+                    self.current_drive = drive_cmd
                     self.current_steer = steer_cmd
-                    safe_speed = speed
-                    alert = self.autonomous.get_state()
-
+                    self.current_speed = requested_speed
                 else:
-                    # MANUAL MODE
-                    if command in [config.CMD_LEFT, config.CMD_RIGHT, config.CMD_STEER_STOP]:
-                        self.current_steer = command
-                    elif command != config.CMD_AUTONOMOUS:
-                        self.current_command = command
+                    self.current_drive = decision.override_drive
+                    self.current_steer = decision.override_steer
+                    self.current_speed = decision.override_speed
 
-                    if self.current_command == config.CMD_FORWARD:
-                        safe_speed = self.obstacle_monitor.get_safe_speed(config.CMD_FORWARD)
-                        alert = self.obstacle_monitor.get_alert_status(config.CMD_FORWARD)
-                    elif self.current_command == config.CMD_BACKWARD:
-                        safe_speed = self.obstacle_monitor.get_safe_speed(config.CMD_BACKWARD)
-                        alert = self.obstacle_monitor.get_alert_status(config.CMD_BACKWARD)
-                    elif self.current_command == config.CMD_EMERGENCY:
-                        safe_speed = 0
-                        alert = config.ALERT_EMERGENCY
-                    else:
-                        safe_speed = 0
-                        alert = config.ALERT_CLEAR
+                # 4. Apply to motors
+                self.motor.set_speed(self.current_drive, self.current_speed)
+                self.steering.set_direction(self.current_steer)
 
-                # 3. Apply to motors
-                self.actual_speed = safe_speed
-                self.motor_controller.set_speed(self.current_command, safe_speed)
-                self.steering_controller.set_direction(self.current_steer)
+                # 5. Build and send status (includes everything ML needs)
+                status = self._build_status(distances)
+                if self.server.is_connected():
+                    self.server.send_status(status)
 
-                # 4. Get min distances for status
-                min_front = self.obstacle_monitor.get_minimum_distance('front')
-                min_back = self.obstacle_monitor.get_minimum_distance('back')
-
-                # 5. Build status
-                mode = "AUTO" if self.autonomous.is_active() else "MANUAL"
-                auto_state = self.autonomous.get_state() if self.autonomous.is_active() else ""
-
-                status = {
-                    'current_command': self.current_command,
-                    'current_steer': self.current_steer,
-                    'actual_speed': self.actual_speed,
-                    'requested_speed': self.requested_speed,
-                    'alert_level': alert,
-                    'distances': distances,
-                    'min_distance_front': min_front if min_front else 0,
-                    'min_distance_back': min_back if min_back else 0,
-                    'connected': self.remote_server.is_connected(),
-                    'mode': mode,
-                    'auto_state': auto_state
-                }
-
-                # 6. Send status to laptop
-                if self.remote_server.is_connected():
-                    self.remote_server.send_status(status)
-
-                # 7. Print status
+                # 6. Periodic console log
                 loop_count += 1
-                if loop_count % 7 == 0:
-                    self._print_status(status)
+                if loop_count % 10 == 0:
+                    self._log(status)
 
-                # 8. Sleep to maintain loop frequency
+                # 7. Maintain loop rate
                 elapsed = time.time() - loop_start
-                sleep_time = max(0, config.CONTROL_LOOP_INTERVAL - elapsed)
-                time.sleep(sleep_time)
+                time.sleep(max(0, config.CONTROL_LOOP_INTERVAL - elapsed))
 
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                print(f"\n[ERROR] Control loop error: {e}")
+                print(f"[loop error] {e}")
                 time.sleep(0.1)
 
-    def _print_status(self, status):
-        """Print status to console"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        connected = "CONNECTED" if status['connected'] else "DISCONNECTED"
-        mode = status.get('mode', 'MANUAL')
-        auto_state = status.get('auto_state', '')
-        steer = status.get('current_steer', 'STRAIGHT')
+    def _build_status(self, distances):
+        status = {
+            'current_command': self.current_drive,
+            'current_steer': self.current_steer,
+            'actual_speed': self.current_speed,
+            'distances': distances,
+            'min_distance_front': self._min(distances, ['FL', 'FR', 'FW']),
+            'min_distance_back': self._min(distances, ['BC']),
+            'min_distance_left': self._min(distances, ['LS']),
+            'min_distance_right': self._min(distances, ['RS']),
+            'safety_violation': self.last_violation.value,
+            'connected': self.server.is_connected(),
+        }
+        if self.gps:
+            fix = self.gps.get_fix()
+            if fix and fix.valid:
+                status['gps'] = {
+                    'lat': fix.latitude, 'lon': fix.longitude,
+                    'alt': fix.altitude, 'speed_mps': fix.speed_mps,
+                    'heading_deg': fix.heading_deg,
+                    'satellites': fix.satellites, 'hdop': fix.hdop,
+                    'valid': True,
+                }
+            else:
+                status['gps'] = {'valid': False}
+        return status
 
-        mode_str = f"{mode}"
-        if auto_state:
-            mode_str += f":{auto_state}"
+    @staticmethod
+    def _min(distances, sensors):
+        vals = [distances.get(s, 0) for s in sensors
+                if config.MIN_SENSOR_DISTANCE <= distances.get(s, 0) <= config.MAX_SENSOR_DISTANCE]
+        return min(vals) if vals else 0.0
 
-        print(f"[{timestamp}] {connected:12s} | "
-              f"{mode_str:20s} | "
-              f"Cmd: {status['current_command']:8s} | "
-              f"Steer: {steer:10s} | "
-              f"Speed: {status['actual_speed']:3d}% | "
-              f"Front: {status['min_distance_front']:6.1f}cm | "
-              f"Back: {status['min_distance_back']:6.1f}cm")
+    def _log(self, status):
+        ts = datetime.now().strftime("%H:%M:%S")
+        conn = "C" if status['connected'] else "D"
+        v = self.last_violation.value
+        print(f"[{ts}] {conn} | drive={self.current_drive:8s} "
+              f"steer={self.current_steer:10s} spd={self.current_speed:3d}% | "
+              f"F={status['min_distance_front']:5.1f} B={status['min_distance_back']:5.1f} | "
+              f"safety={v}")
 
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals"""
-        print("\n\nReceived shutdown signal...")
+    def _sig_handler(self, signum, frame):
+        print("\nShutdown...")
         self.stop()
 
     def stop(self):
-        """Stop all subsystems"""
         if not self.running:
             return
-
-        print("\n" + "=" * 60)
-        print("SHUTTING DOWN")
-        print("=" * 60)
-
         self.running = False
-
-        # Stop motors first (safety)
-        print("\n[1/5] Stopping drive motor...")
+        print("Stopping motors...")
+        try: self.motor.stop()
+        except Exception: pass
+        try: self.steering.stop()
+        except Exception: pass
+        try: self.server.stop_server()
+        except Exception: pass
+        try: self.sensors.stop_monitoring()
+        except Exception: pass
+        if self.gps:
+            try: self.gps.stop()
+            except Exception: pass
         try:
-            self.motor_controller.stop()
-            print("✓ Drive motor stopped")
-        except Exception as e:
-            print(f"✗ Error stopping drive motor: {e}")
-
-        print("\n[2/5] Stopping steering motor...")
-        try:
-            self.steering_controller.stop()
-            print("✓ Steering motor stopped")
-        except Exception as e:
-            print(f"✗ Error stopping steering motor: {e}")
-
-        # Stop remote server
-        print("\n[3/5] Stopping remote server...")
-        try:
-            self.remote_server.stop_server()
-            print("✓ Remote server stopped")
-        except Exception as e:
-            print(f"✗ Error stopping server: {e}")
-
-        # Stop obstacle monitor
-        print("\n[4/5] Stopping obstacle monitor...")
-        try:
-            self.obstacle_monitor.stop_monitoring()
-            print("✓ Obstacle monitor stopped")
-        except Exception as e:
-            print(f"✗ Error stopping monitor: {e}")
-
-        # Cleanup GPIO
-        print("\n[5/5] Cleaning up GPIO...")
-        try:
-            self.motor_controller.cleanup()
-            self.steering_controller.cleanup()
-            print("✓ GPIO cleanup complete")
-        except Exception as e:
-            print(f"✗ Error cleaning up GPIO: {e}")
-
-        print("\n" + "=" * 60)
-        print("SHUTDOWN COMPLETE")
-        print("=" * 60 + "\n")
+            self.motor.cleanup()
+            self.steering.cleanup()
+        except Exception: pass
+        print("Shutdown complete.")
 
 
 def main():
-    """Main entry point"""
-    print("\n")
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║                                                            ║")
-    print("║       LAPTOP-CONTROLLED VEHICLE CONTROL SYSTEM             ║")
-    print("║                                                            ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    print()
-
-    # Create and start controller
-    controller = VehicleController()
-
+    c = VehicleController()
     try:
-        controller.start()
-    except Exception as e:
-        print(f"\nFatal error: {e}")
+        c.start()
     finally:
-        controller.stop()
-        print("\nGoodbye!\n")
+        c.stop()
 
 
 if __name__ == "__main__":

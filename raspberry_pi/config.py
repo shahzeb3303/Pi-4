@@ -25,7 +25,16 @@ STEER_SPEED = 70     # Default steering speed percentage
 # ==============================================================================
 # Serial Configuration (Arduino Communication)
 # ==============================================================================
-SERIAL_PORT = '/dev/ttyUSB0'  # Arduino serial port
+import glob as _glob
+def _find_arduino():
+    """Auto-detect Arduino serial port"""
+    for pattern in ['/dev/ttyUSB*', '/dev/ttyACM*']:
+        ports = _glob.glob(pattern)
+        if ports:
+            return sorted(ports)[0]
+    return '/dev/ttyUSB0'
+
+SERIAL_PORT = _find_arduino()  # Auto-detect Arduino serial port
 SERIAL_BAUD = 115200          # Baud rate (must match Arduino sketch)
 SERIAL_TIMEOUT = 0.05         # Timeout in seconds (50ms for fast response)
 

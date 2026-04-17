@@ -24,8 +24,10 @@ class RemoteServer:
         self.is_running = False
         self.is_client_connected = False
 
-        # Latest command from client
+        # Latest commands from client
         self.latest_command = config.CMD_STOP
+        self.latest_steer = config.CMD_STEER_STOP
+        self.latest_speed = 0  # 0-100, set by ML or manual
         self.command_timestamp = time.time()
         self.lock = threading.Lock()
 
@@ -99,37 +101,67 @@ class RemoteServer:
 
     def _handle_client(self, client_sock, client_addr):
         """Handle client connection (runs in thread)"""
+        buffer = ""
         try:
             while self.is_running and self.is_client_connected:
                 try:
-                    # Receive data from client
-                    client_sock.settimeout(0.5)  # Short timeout for responsiveness
+                    client_sock.settimeout(0.5)
                     try:
-                        data = client_sock.recv(1024)
+                        data = client_sock.recv(4096)
                     except socket.timeout:
                         continue
 
                     if not data:
-                        # Client disconnected
                         print(f"[RemoteServer] Client {client_addr} disconnected")
                         break
 
-                    # Parse JSON command
-                    try:
-                        message = json.loads(data.decode('utf-8'))
-                        command = message.get('command', config.CMD_STOP)
+                    buffer += data.decode('utf-8')
 
-                        # Validate command
-                        if command in config.VALID_COMMANDS:
+                    # Try to parse each JSON object in the buffer
+                    # Messages may arrive concatenated like: {"command":"FORWARD"}{"command":"LEFT"}
+                    while buffer:
+                        buffer = buffer.strip()
+                        if not buffer:
+                            break
+
+                        # Find the end of first JSON object
+                        depth = 0
+                        end_idx = -1
+                        for i, ch in enumerate(buffer):
+                            if ch == '{':
+                                depth += 1
+                            elif ch == '}':
+                                depth -= 1
+                                if depth == 0:
+                                    end_idx = i
+                                    break
+
+                        if end_idx == -1:
+                            break  # Incomplete JSON, wait for more data
+
+                        json_str = buffer[:end_idx + 1]
+                        buffer = buffer[end_idx + 1:]
+
+                        try:
+                            message = json.loads(json_str)
+                            command = message.get('command', config.CMD_STOP)
+                            steer = message.get('steer', None)
+                            speed = message.get('speed', None)
+
                             with self.lock:
-                                self.latest_command = command
-                                self.command_timestamp = time.time()
-                            print(f"[RemoteServer] Received command: {command}")  # DEBUG: Show received commands
-                        else:
-                            print(f"[RemoteServer] Invalid command: {command}")
+                                if command in config.VALID_COMMANDS:
+                                    self.latest_command = command
+                                    self.command_timestamp = time.time()
+                                if steer in [config.CMD_LEFT, config.CMD_RIGHT, config.CMD_STEER_STOP]:
+                                    self.latest_steer = steer
+                                if speed is not None:
+                                    try:
+                                        self.latest_speed = max(0, min(100, int(speed)))
+                                    except (TypeError, ValueError):
+                                        pass
 
-                    except json.JSONDecodeError as e:
-                        print(f"[RemoteServer] Invalid JSON: {e}")
+                        except json.JSONDecodeError:
+                            pass
 
                 except Exception as e:
                     if self.is_running:
@@ -137,10 +169,9 @@ class RemoteServer:
                     break
 
         finally:
-            # Client disconnected
             with self.lock:
                 self.is_client_connected = False
-                self.latest_command = config.CMD_STOP  # Stop on disconnect
+                self.latest_command = config.CMD_STOP
                 try:
                     client_sock.close()
                 except:
@@ -164,6 +195,27 @@ class RemoteServer:
                     self.latest_command = config.CMD_STOP
 
             return self.latest_command
+
+    def get_latest_steer(self):
+        """Get latest steer command from client"""
+        with self.lock:
+            return self.latest_steer
+
+    def get_latest_speed(self):
+        """Get latest speed (0-100) from client. Default 50 if no speed sent."""
+        with self.lock:
+            return self.latest_speed if self.latest_speed > 0 else 50
+
+    def get_command_timestamp(self):
+        """Return Unix timestamp of last command received."""
+        with self.lock:
+            return self.command_timestamp
+
+    def reset_command(self):
+        """Reset command to STOP (used after processing one-shot commands like AUTONOMOUS)"""
+        with self.lock:
+            self.latest_command = config.CMD_STOP
+            self.command_timestamp = time.time()
 
     def send_status(self, status_dict):
         """
