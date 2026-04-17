@@ -164,9 +164,11 @@ class VehicleController:
         ts = datetime.now().strftime("%H:%M:%S")
         conn = "C" if status['connected'] else "D"
         v = self.last_violation.value
+        d = status.get('distances', {})
         print(f"[{ts}] {conn} | drive={self.current_drive:8s} "
               f"steer={self.current_steer:10s} spd={self.current_speed:3d}% | "
-              f"F={status['min_distance_front']:5.1f} B={status['min_distance_back']:5.1f} | "
+              f"FL={d.get('FL',0):5.1f} FR={d.get('FR',0):5.1f} FW={d.get('FW',0):5.1f} "
+              f"BC={d.get('BC',0):5.1f} LS={d.get('LS',0):5.1f} RS={d.get('RS',0):5.1f} | "
               f"safety={v}")
 
     def _sig_handler(self, signum, frame):

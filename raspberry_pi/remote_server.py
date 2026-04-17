@@ -60,6 +60,7 @@ class RemoteServer:
         except Exception as e:
             print(f"[RemoteServer] Failed to start server: {e}")
             self.is_running = False
+            raise
 
     def _accept_connections(self):
         """Accept incoming client connections (runs in thread)"""
