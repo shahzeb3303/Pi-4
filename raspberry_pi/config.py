@@ -35,7 +35,8 @@ def _find_arduino():
     return '/dev/ttyUSB0'
 
 SERIAL_PORT = _find_arduino()  # Auto-detect Arduino serial port
-SERIAL_BAUD = 115200          # Baud rate (must match Arduino sketch)
+SERIAL_BAUD = 9600            # Baud (matches all_6_sensors.ino test sketch)
+                              # Change to 115200 if you upload sensor_production.ino (JSON)
 SERIAL_TIMEOUT = 0.05         # Timeout in seconds (50ms for fast response)
 
 # ==============================================================================

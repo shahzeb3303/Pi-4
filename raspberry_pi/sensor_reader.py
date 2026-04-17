@@ -10,9 +10,13 @@ at 115200 baud, ~10Hz.
 """
 
 import json
+import re
 import serial
 import threading
 import time
+
+# Parser for the plain-text sensor_test / all_6_sensors sketch, e.g. "FL: 63.3 cm"
+_TEXT_LINE_RE = re.compile(r'^([A-Z]{2})\s*:\s*(-?\d+\.?\d*)\s*cm', re.IGNORECASE)
 
 
 class UltrasonicSensorReader:
@@ -71,17 +75,23 @@ class UltrasonicSensorReader:
                 if not line:
                     continue
 
-                # Parse JSON
-                try:
-                    parsed = json.loads(line)
-                    with self.lock:
-                        # Update only keys we know about
-                        for key in ['FL', 'FR', 'FW', 'BC', 'LS', 'RS']:
-                            if key in parsed:
-                                self.data[key] = float(parsed[key])
-                except (json.JSONDecodeError, ValueError):
-                    # Not valid JSON, skip
-                    pass
+                # Try JSON first, then plain-text "XX: N.N cm" format
+                if line.startswith('{'):
+                    try:
+                        parsed = json.loads(line)
+                        with self.lock:
+                            for key in ['FL', 'FR', 'FW', 'BC', 'LS', 'RS']:
+                                if key in parsed:
+                                    self.data[key] = float(parsed[key])
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                else:
+                    m = _TEXT_LINE_RE.match(line)
+                    if m:
+                        key = m.group(1).upper()
+                        if key in ('FL', 'FR', 'FW', 'BC', 'LS', 'RS'):
+                            with self.lock:
+                                self.data[key] = float(m.group(2))
 
             except serial.SerialException:
                 print("[SensorReader] Serial error, attempting reconnect...")
