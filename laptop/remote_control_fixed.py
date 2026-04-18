@@ -30,7 +30,6 @@ class RemoteControl:
         self.steer = 'STEER_STOP'
         self.auto_mode = False
         self.lock = threading.Lock()
-        self.sock_lock = threading.Lock()
 
         self.status = None
         self.status_lock = threading.Lock()
@@ -54,8 +53,7 @@ class RemoteControl:
             return
         try:
             msg = json.dumps({'command': drive, 'steer': steer})
-            with self.sock_lock:
-                self.sock.sendall(msg.encode('utf-8'))
+            self.sock.sendall(msg.encode('utf-8'))
         except:
             self.connected = False
 
@@ -158,50 +156,54 @@ class RemoteControl:
 
     def read_keys(self):
         old = termios.tcgetattr(sys.stdin)
-        one_shot = None  # for commands that must fire exactly once
         try:
             tty.setraw(sys.stdin.fileno())
             while self.running:
                 ch = sys.stdin.read(1)
-                one_shot = None
 
                 with self.lock:
                     if ch in ('w', 'W'):
                         if not self.auto_mode:
                             self.drive = 'FORWARD'
+                            self.send('FORWARD', self.steer)
 
                     elif ch in ('s', 'S'):
                         if not self.auto_mode:
                             self.drive = 'BACKWARD'
+                            self.send('BACKWARD', self.steer)
 
                     elif ch in ('a',):
                         if not self.auto_mode:
                             self.steer = 'LEFT'
+                            self.send(self.drive, 'LEFT')
 
                     elif ch in ('d',):
                         if not self.auto_mode:
                             self.steer = 'RIGHT'
+                            self.send(self.drive, 'RIGHT')
 
                     elif ch in ('x', 'X'):
                         if not self.auto_mode:
                             self.steer = 'STEER_STOP'
+                            self.send(self.drive, 'STEER_STOP')
 
                     elif ch == ' ':
                         self.auto_mode = False
                         self.drive = 'STOP'
                         self.steer = 'STEER_STOP'
+                        self.send('STOP', 'STEER_STOP')
 
                     elif ch in ('t', 'T'):
-                        # One-shot: must only fire once, not repeatedly
                         self.auto_mode = not self.auto_mode
+                        self.send('AUTONOMOUS', 'STEER_STOP')
                         if self.auto_mode:
                             self.drive = 'STOP'
                             self.steer = 'STEER_STOP'
-                        one_shot = ('AUTONOMOUS', 'STEER_STOP')
 
                     elif ch in ('q', 'Q', '\x03'):
+                        self.send('EMERGENCY', 'STEER_STOP')
                         self.running = False
-                        one_shot = ('EMERGENCY', 'STEER_STOP')
+                        break
 
                     elif ch == '\x1b':
                         if select.select([sys.stdin], [], [], 0.01)[0]:
@@ -211,24 +213,24 @@ class RemoteControl:
                                 if not self.auto_mode:
                                     if ch3 == 'A':
                                         self.drive = 'FORWARD'
+                                        self.send('FORWARD', self.steer)
                                     elif ch3 == 'B':
                                         self.drive = 'BACKWARD'
+                                        self.send('BACKWARD', self.steer)
                                     elif ch3 == 'C':
                                         self.steer = 'RIGHT'
+                                        self.send(self.drive, 'RIGHT')
                                     elif ch3 == 'D':
                                         self.steer = 'LEFT'
+                                        self.send(self.drive, 'LEFT')
                             else:
+                                self.send('EMERGENCY', 'STEER_STOP')
                                 self.running = False
-                                one_shot = ('EMERGENCY', 'STEER_STOP')
+                                break
                         else:
+                            self.send('EMERGENCY', 'STEER_STOP')
                             self.running = False
-                            one_shot = ('EMERGENCY', 'STEER_STOP')
-
-                # Send one-shot commands outside the lock (no concurrent write risk)
-                if one_shot:
-                    self.send(*one_shot)
-                if not self.running:
-                    break
+                            break
 
         finally:
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
