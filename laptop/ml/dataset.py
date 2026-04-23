@@ -185,11 +185,15 @@ class DrivingDataset(Dataset):
 
 
 def class_weights(labels: List[int], num_classes: int = NUM_ACTIONS) -> torch.Tensor:
-    """Inverse-frequency class weights for CrossEntropyLoss."""
+    """Inverse-frequency class weights for CrossEntropyLoss.
+    Classes with 0 samples get weight 0 (not penalized/rewarded)."""
     counts = np.bincount(labels, minlength=num_classes).astype(np.float32)
-    counts = np.where(counts == 0, 1.0, counts)  # avoid div-by-zero
-    w = 1.0 / counts
-    w = w / w.sum() * num_classes
+    present = counts > 0
+    w = np.zeros(num_classes, dtype=np.float32)
+    if present.any():
+        w[present] = 1.0 / counts[present]
+        # Normalize so average weight over present classes = 1
+        w = w / w[present].mean()
     return torch.from_numpy(w).float()
 
 

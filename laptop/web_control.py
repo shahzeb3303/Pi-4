@@ -74,9 +74,6 @@ class PiClient:
             except Exception:
                 self.connected = False
                 return
-            with self.cmd_lock:
-                if self.steer in ('LEFT', 'RIGHT'):
-                    self.steer = 'STEER_STOP'
             time.sleep(0.2)
 
     def _receiver(self):
